@@ -12,9 +12,16 @@ Useful docs:
   - HuggingFace pipelines: https://python.langchain.com/docs/integrations/llms/huggingface_pipelines/
 """
 
+import argparse
+import glob
 import os
+from typing import Any, Callable
+
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 from src.knowledge_base import build_knowledge_base
+
+# A local LLM: takes a prompt, returns [{"generated_text": ...}].
+LLM = Callable[[str], list[dict[str, str]]]
 
 
 # ──────────────────────────────────────────────
@@ -64,7 +71,7 @@ def _preview(text: str, width: int = 120) -> str:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # TODO 1: Implement ask_question
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-def ask_question(vector_store, llm, question: str) -> dict:
+def ask_question(vector_store: Any, llm: LLM, question: str) -> dict:
     """Retrieve relevant chunks and generate an answer.
 
     Steps:
@@ -100,7 +107,15 @@ def ask_question(vector_store, llm, question: str) -> dict:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # TODO 2: Complete the interactive loop
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-def main():
+def _print_result(result: dict) -> None:
+    """Print retrieved sources and the generated answer."""
+    print("\n📄 Sources:")
+    for i, source in enumerate(result["sources"], 1):
+        print(f"  {i}. {_preview(source)}")
+    print(f"\n💬 Answer: {result['answer']}\n")
+
+
+def main() -> None:
     """Interactive Q&A loop.
 
     Steps:
@@ -112,8 +127,24 @@ def main():
          - Exits if they type "quit"
          - Calls ask_question() with their input
          - Prints the retrieved sources and the answer
+
+    Passing --query "..." answers that one question and exits instead.
     """
+    parser = argparse.ArgumentParser(
+        description="Ask questions about the agency's services, pricing, and process."
+    )
+    parser.add_argument(
+        "--query",
+        help="Answer a single question and exit, instead of starting the interactive loop.",
+    )
+    args = parser.parse_args()
+
     data_dir = os.path.join(os.path.dirname(__file__), "..", "data")
+
+    if not os.path.isdir(data_dir):
+        raise SystemExit(f"Data directory not found: {os.path.abspath(data_dir)}")
+    if not glob.glob(os.path.join(data_dir, "**", "*.txt"), recursive=True):
+        raise SystemExit(f"No .txt documents found in {os.path.abspath(data_dir)}")
 
     vector_store = build_knowledge_base(data_dir)
 
@@ -121,19 +152,26 @@ def main():
     llm = get_llm()
     print("  Done!\n")
 
+    # Single-question mode: answer once and exit.
+    if args.query:
+        _print_result(ask_question(vector_store, llm, args.query))
+        return
+
     print('Ask about our services, pricing, or process. Type "quit" to exit.\n')
 
     while True:
-        question = input("> ")
+        try:
+            question = input("> ")
+        except (EOFError, KeyboardInterrupt):
+            print()  # leave the shell prompt on its own line
+            break
+
+        if not question.strip():
+            continue
         if question.strip().lower() == "quit":
             break
 
-        result = ask_question(vector_store, llm, question)
-
-        print("\n📄 Sources:")
-        for i, source in enumerate(result["sources"], 1):
-            print(f"  {i}. {_preview(source)}")
-        print(f"\n💬 Answer: {result['answer']}\n")
+        _print_result(ask_question(vector_store, llm, question))
 
 
 if __name__ == "__main__":
