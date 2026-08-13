@@ -55,6 +55,12 @@ Client question: {question}
 Answer:"""
 
 
+def _preview(text: str, width: int = 120) -> str:
+    """Collapse a chunk onto one line, trimmed to `width` characters."""
+    text = " ".join(text.split())
+    return text if len(text) <= width else text[:width].rstrip() + "..."
+
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # TODO 1: Implement ask_question
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -80,8 +86,15 @@ def ask_question(vector_store, llm, question: str) -> dict:
             "answer"  -> str: the generated answer
             "sources" -> list[str]: the chunk texts that were retrieved
     """
-    # TODO: implement this (~6-8 lines)
-    raise NotImplementedError("TODO 1: Implement ask_question")
+    docs = vector_store.similarity_search(question, k=3)
+    sources = [doc.page_content for doc in docs]
+    context = "\n\n".join(sources)
+
+    prompt = PROMPT_TEMPLATE.format(context=context, question=question)
+    result = llm(prompt)
+    answer = result[0]["generated_text"].strip()
+
+    return {"answer": answer, "sources": sources}
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -102,8 +115,25 @@ def main():
     """
     data_dir = os.path.join(os.path.dirname(__file__), "..", "data")
 
-    # TODO: implement this (~10-12 lines)
-    raise NotImplementedError("TODO 2: Complete the interactive loop")
+    vector_store = build_knowledge_base(data_dir)
+
+    print("Loading LLM (first run downloads ~1GB)...")
+    llm = get_llm()
+    print("  Done!\n")
+
+    print('Ask about our services, pricing, or process. Type "quit" to exit.\n')
+
+    while True:
+        question = input("> ")
+        if question.strip().lower() == "quit":
+            break
+
+        result = ask_question(vector_store, llm, question)
+
+        print("\n📄 Sources:")
+        for i, source in enumerate(result["sources"], 1):
+            print(f"  {i}. {_preview(source)}")
+        print(f"\n💬 Answer: {result['answer']}\n")
 
 
 if __name__ == "__main__":
